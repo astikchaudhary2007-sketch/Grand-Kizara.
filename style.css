@@ -232,3 +232,11 @@ footer .logo{border-radius:10px}
 .orgstrip{flex:0 0 100%;font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent-ink);background:var(--accent);padding:7px 10px;border-radius:4px}
 .orgrow{font:500 12px/1.4 var(--mono);color:var(--accent);border:1px dashed var(--accent);border-radius:4px;padding:8px 10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .orgrow a{color:var(--fg)}
+
+/* account page */
+.acc{display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px}
+.avatar{width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid var(--line);flex:none}
+.accname{font:800 28px/1 var(--display);text-transform:uppercase}
+.accmail{color:var(--muted);font-size:14px;margin:6px 0 10px;overflow-wrap:anywhere}
+.rolepill{display:inline-block;font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:6px 12px;color:var(--muted)}
+.rolepill.org{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}

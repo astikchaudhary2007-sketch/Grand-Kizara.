@@ -68,7 +68,8 @@ function gameLogo(g, size){
 
 /* ---------- live data ---------- */
 var MATCHES = [], CLAIMS = {}, STANDINGS = [], MY = [], ALLB = [];
-var live = { ready:false, db:null, uid:null, canWrite:null, canAdmin:false };
+var PROFILE = null;
+var live = { ready:false, db:null, uid:null, name:"", email:"", avatar:"", isOwner:false, isEditor:false, canWrite:null, canAdmin:false };
 function find(id){ return MATCHES.filter(function(m){return m.id===id;})[0]; }
 function recompute(){
   var c={}; Object.keys(CLAIMS).forEach(function(k){ var x=CLAIMS[k]; c[x.matchId]=(c[x.matchId]||0)+(x.qty|0); });
@@ -84,9 +85,14 @@ async function startLive(){
     var user = window.claude && window.claude.use ? await window.claude.use("user") : null;
     live.db = db;
     if(user){
-      try { live.uid = await user.id(); } catch(e) {}
-      try { live.canAdmin = !!user.isOwner(); } catch(e) {}
-      try { live.canWrite = user.can("data.write"); } catch(e) {}
+      try {
+        var me = await user.me();
+        live.uid = me.id || null; live.name = me.name || ""; live.email = (me.email || "").toLowerCase(); live.avatar = me.avatarUrl || "";
+        live.isOwner = me.isOwner === true; live.isEditor = me.canEdit === true;
+      } catch(e) {}
+      /* Organiser tools show only for the account that owns this page. */
+      live.canAdmin = live.isOwner;
+      try { live.canWrite = await user.can("data.write"); } catch(e) {}
     }
     live.ready = true;
     if(!db){ changed(); return; }
@@ -110,6 +116,9 @@ async function startLive(){
         MY = Object.keys(it).map(function(k){ return it[k]; }).sort(function(a,b){ return String(b.at).localeCompare(String(a.at)); });
         changed();
       }, oops);
+    }
+    if(live.uid){
+      db.doc("data/users/"+live.uid+"/profile").onSnapshot(function(s){ PROFILE = s.exists ? s.data() : null; changed(); }, oops);
     }
     if(live.canAdmin){
       db.collection("bookings").onSnapshot(function(s){
@@ -136,7 +145,7 @@ var PAGES = [["home","Home"],["matches","Matches"],["rules","Rules and booking"]
 var route = "home", view = null;
 function renderNav(){
   var page = route.split("-")[0];
-  var items = PAGES.slice(); if(live.canAdmin) items.push(["admin","Organiser"]);
+  var items = PAGES.slice(); items.push(["account", live.uid ? "Account" : "Sign in"]); if(live.canAdmin) items.push(["admin","Organiser"]);
   $("bar").className = "bar";
   $("bar").innerHTML = '<div class="bar-in"><a class="brand" href="#home" data-route="home" style="text-decoration:none"><img class="logo" src="logo.png" alt="Grand Kizara Esports logo" width="44" height="44"><b>GRAND KIZARA</b><span>ESPORTS</span></a><nav aria-label="Main">'+
     items.map(function(p){ return '<a href="#'+p[0]+'" data-route="'+p[0]+'"'+(p[0]===page?' aria-current="page"':'')+'>'+p[1]+'</a>'; }).join("")+
@@ -345,7 +354,63 @@ VIEWS.bookings = {
   update: function(){ myList($("mine")); }
 };
 
-/* organiser console: only for people with Editor access or higher */
+var accSig = "";
+function pfield(k,label,ph,hint){
+  return '<div class="field"><label for="pf-'+k+'">'+label+'</label><input id="pf-'+k+'" type="text" placeholder="'+ph+'" autocomplete="off">'+(hint?'<div class="hint">'+hint+'</div>':'')+'<div class="err" id="pferr-'+k+'"></div></div>';
+}
+VIEWS.account = {
+  mount: function(){
+    accSig = "";
+    $("view").innerHTML =
+    '<header class="pagehead"><div class="eyebrow">Sign in and sign up</div><h1>Account</h1><p>Your account is your Claude sign-in. Create your player profile once and every booking form fills itself in.</p></header>'+
+    '<section style="padding-top:28px" id="accBody"></section>';
+  },
+  update: function(){
+    var el=$("accBody"); if(!el) return;
+    var sig=[live.ready,!!live.db,live.uid,live.name,live.email,live.canAdmin,JSON.stringify(PROFILE||null)].join("|");
+    if(sig===accSig) return; accSig=sig;
+    var n=stateNote();
+    if(n){ el.innerHTML='<div class="empty">'+esc(n)+'</div>'; return; }
+    if(!live.uid){
+      el.innerHTML='<div class="empty">You are browsing as a guest. Sign in to Claude and open this page from its shared link to book slots, see your bookings and save a player profile.</div>';
+      return;
+    }
+    var pr=PROFILE||{}, ids=pr.ids||{};
+    el.innerHTML =
+      '<div class="acc">'+(live.avatar?'<img class="avatar" src="'+esc(live.avatar)+'" alt="" width="64" height="64">':'')+
+      '<div><div class="accname">'+esc(live.name||"Player")+'</div>'+(live.email?'<div class="accmail">'+esc(live.email)+'</div>':'')+
+      '<span class="rolepill'+(live.canAdmin?' org':'')+'">'+(live.canAdmin?'Organiser':'Player')+'</span></div></div>'+
+      (live.canAdmin ? '<div class="note" style="margin-top:20px">You are signed in as the organiser. <a href="#admin" data-route="admin" style="color:var(--accent)">Open the organiser console</a> to add matches and results and to check UPI payments.</div>' : '')+
+      '<div class="sec-head" style="margin-top:36px"><h2 style="font-size:32px">Player profile</h2></div>'+
+      '<form id="pf" class="formgrid" novalidate>'+
+        pfield("name","Player name","Your name","")+
+        pfield("phone","Mobile number","10-digit number","Used to send room details")+
+        pfield("ff","Free Fire UID","8 to 12 digits","")+
+        pfield("pubg","PUBG ID","8 to 12 digits","")+
+        pfield("coc","Clash of Clans tag","#2PP0LQ8","")+
+        '<div class="field"><div class="err" id="pf-err"></div><button class="btn primary" type="submit" style="justify-self:start">Save profile</button></div>'+
+      '</form>';
+    $("pf-name").value=pr.name||live.name||""; $("pf-phone").value=pr.phone||"";
+    $("pf-ff").value=ids.ff||""; $("pf-pubg").value=ids.pubg||""; $("pf-coc").value=ids.coc||"";
+    $("pf").onsubmit=function(e){ e.preventDefault(); saveProfile(); };
+  }
+};
+function saveProfile(){
+  var v=function(k){ return $("pf-"+k).value.trim(); }, ok=true;
+  function bad(k,m){ $("pferr-"+k).textContent=m||""; if(m) ok=false; }
+  bad("name", v("name").length<2 ? "Enter your name." : "");
+  bad("phone", v("phone") && !/^[6-9]\d{9}$/.test(v("phone")) ? "Enter a 10-digit Indian mobile number." : "");
+  bad("ff", v("ff") && !/^\d{8,12}$/.test(v("ff")) ? "Enter 8 to 12 digits." : "");
+  bad("pubg", v("pubg") && !/^\d{8,12}$/.test(v("pubg")) ? "Enter 8 to 12 digits." : "");
+  bad("coc", v("coc") && !/^#[0289PYLQGRJCUV]{3,12}$/i.test(v("coc")) ? "Enter a valid tag starting with #." : "");
+  if(!ok) return;
+  $("pf-err").textContent="";
+  live.db.doc("data/users/"+live.uid+"/profile").set({ name:v("name"), phone:v("phone"), ids:{ ff:v("ff"), pubg:v("pubg"), coc:v("coc") } })
+    .then(function(){ toast("Profile saved"); }, function(e){ $("pf-err").textContent="Could not save: "+((e&&e.code)||"error"); });
+}
+
+/* organiser console: only for the account that owns this page */
+
 VIEWS.admin = {
   mount: function(){
     if(!live.canAdmin){
@@ -505,6 +570,8 @@ function renderPanel(){
       '<div class="err" id="err-rules" style="margin-bottom:14px"></div>'+
       '<div class="actions"><button type="button" class="btn" id="cancelBtn">Cancel</button><button class="btn primary" type="submit">Continue to payment</button></div></form>';
     ["team","player","ign","phone","sub","extra"].forEach(function(k){ var el=$("in-"+k); if(el && form[k]) el.value=form[k]; });
+    var pr=PROFILE||{}, pids=pr.ids||{};
+    [["player",pr.name||live.name],["phone",pr.phone],["ign",pids[m.game]]].forEach(function(x){ var el=$("in-"+x[0]); if(el && !el.value && x[1]) el.value=x[1]; });
     $("in-qty").value = String(Math.min(form.qty||1, maxq));
     $("extraBox").hidden = ($("in-qty").value|0) < 2;
     $("in-qty").onchange = function(){ form.qty = this.value|0; $("extraBox").hidden = form.qty<2; $("sumWrap").innerHTML = summary(m); };
